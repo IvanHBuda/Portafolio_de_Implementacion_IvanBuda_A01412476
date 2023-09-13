@@ -1,0 +1,302 @@
+---
+title: "Momento de retroalimentación. 2da entrega"
+author: "Iván L. Hernández Buda"
+date: "2023-08-24"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Carga de librerías y base de datos
+
+- Se carga un conjunto de datos llamado 'df' desde un archivo CSV llamado "precios_autos.csv" utilizando la función 'read.csv()'. Se muestra una vista previa de las primeras filas de los datos con 'head(df)'.
+- Se separan las variables numéricas y categóricas en 'numeric_vars' y 'categoric_vars', respectivamente.
+
+```{r}
+library(corrplot)
+library(psych)
+library(ggplot2)
+library(e1071)
+library(RColorBrewer)
+library(MASS)
+
+# Carga del dataset
+df <- read.csv("precios_autos.csv")
+
+# Extraccción de variables numericas 
+numeric_vars <- df[sapply(df, is.numeric)]
+numeric_names <- names(numeric_vars)
+
+# Extraccción variables categoricas 
+categoric_vars <- df[sapply(df, is.character)]
+categoric_names <- names(categoric_vars)
+
+head(df)
+```
+
+# Análisis de correlación de variables numéricas
+
+- En esta sección, se calcula la matriz de correlación entre las variables numéricas con 'cor(numeric_vars)' y se visualiza la matriz de correlación utilizando 'corrplot'.
+- Se identifican las variables altamente correlacionadas con 'price' utilizando un umbral de correlación de 0.68. Estas variables se almacenan en 'high_corr_vars'.
+- Luego, se configura el diseño para crear gráficos de dispersión de estas variables altamente correlacionadas con 'price'. Se utilizan gráficos de dispersión para visualizar las relaciones entre estas variables y 'price'.
+
+```{r}
+# Calcular la matriz de correlación 
+cor_matrix <- cor(numeric_vars)
+corrplot(cor_matrix, method = "square")
+
+# Identificar variables altamente correlacionadas con 'price'
+high_corr_indices <- which(abs(cor_matrix["price", ]) > 0.68 & abs(cor_matrix["price", ]) < 1)
+high_corr_vars <- numeric_names[high_corr_indices]
+
+# Visualizar resultados
+N_high_corr_vars <- length(high_corr_vars)
+num_rows <- ceiling(sqrt(N_high_corr_vars))
+num_cols <- ceiling(N_high_corr_vars / num_rows)
+par(mfrow = c(num_rows, num_cols))
+par(mar = c(2, 2, 1, 1))
+options(repr.plot.width = 10, repr.plot.height = 8)
+for (i in 1:N_high_corr_vars) {
+  var1 <- high_corr_vars[i]
+  var2 <- 'price'
+  
+  plot(numeric_vars[[var1]], numeric_vars[[var2]], 
+       main = paste(var1, "vs", var2),
+       xlab = var1, ylab = var2,
+       pch = 16, cex = 0.7)
+}
+par(mfrow = c(1, 1))
+```
+
+# Análisis de variables numéricas
+
+- En esta sección, se configura el diseño para crear histogramas y diagramas de caja para las variables numéricas.
+- Se crea un histograma para cada variable numérica. La función 'skew()' se utiliza para determinar si una variable es simétrica o asimétrica.
+- Luego, se crea un diagrama de caja para cada variable numérica, que muestra la distribución y la presencia de valores atípicos en las variables.
+
+```{r}
+# Visualización de distribuciones de variables numéricas
+N_numeric_vars <- ncol(numeric_vars)
+num_rows <- ceiling(sqrt(N_numeric_vars))
+num_cols <- ceiling(N_numeric_vars / num_rows)
+par(mfrow = c(num_rows, num_cols))
+par(mar = c(2, 2, 1, 1))
+options(repr.plot.width = 10, repr.plot.height = 8)
+for (i in 1:N_numeric_vars) {
+  skew <- psych::skew(numeric_vars[[i]])
+  if (abs(skew) < 0.2) {
+    clf = "symmetric"
+  } else {
+    clf = "non-symmetric"
+  }
+  hist(numeric_vars[[i]], main = paste(colnames(numeric_vars)[i], clf), xlab = "", cex.main = 0.7)
+}
+par(mfrow = c(1, 1))
+
+par(mfrow = c(num_rows, num_cols))
+par(mar = c(2, 2, 1, 1))
+options(repr.plot.width = 10, repr.plot.height = 8)
+for (i in 1:N_numeric_vars) {
+  boxplot_outliers <- boxplot.stats(numeric_vars[[i]])$out
+  num_outliers <- length(boxplot_outliers)
+  boxplot(numeric_vars[[i]], main = paste(colnames(numeric_vars)[i], ", Outliers:", num_outliers, sep = " "), ylab = "", cex.main = 0.7)
+}
+par(mfrow = c(1, 1))  # Reset plotting parameters
+```
+
+# Análisis de variables categóricas
+
+- En esta sección, se configura el diseño para crear gráficos de pastel para las variables categóricas.
+- Se crea un gráfico de pastel para cada variable categórica para visualizar la distribución de categorías en esas variables.
+
+```{r}
+# Visualización de distribución de variables categóricas
+N_categoric_vars <- ncol(categoric_vars)
+num_rows_categoric <- ceiling(sqrt(N_categoric_vars))
+num_cols_categoric <- ceiling(N_categoric_vars / num_rows_categoric) - 1
+
+par(mfrow = c(num_rows_categoric, num_cols_categoric))
+par(mar = c(2, 2, 1, 1))
+for (i in 2:ncol(categoric_vars)) {
+  category_counts <- table(categoric_vars[[i]])
+  category_percentages <- round((category_counts / sum(category_counts)) * 100, 2)
+  pie(category_counts, main = colnames(categoric_vars)[i])
+  legend("topright", legend = paste(names(category_counts), "(", category_percentages, "%)", sep = ""), cex = 0.8)
+}
+par(mfrow = c(1, 1))
+```
+
+# Análisis de relaciones entre variables categóricas y 'price'
+
+- En esta sección, se configura el diseño para crear diagramas de caja que muestran la relación entre variables categóricas y 'price'.
+- Se crea un diagrama de caja para cada variable categórica en función de 'price'.
+
+```{r}
+# Visualización de caja y bigote de variables categóricas contra precio
+par(mfrow = c(num_rows_categoric, num_cols_categoric))
+par(mar = c(2, 2, 1, 1))
+color_palette <- brewer.pal(N_categoric_vars, "Set3")
+for (i in 2:N_categoric_vars) {
+  boxplot(numeric_vars$price ~ categoric_vars[[i]], main = colnames(categoric_vars)[i], xlab = "", ylab = "", col = color_palette)
+}
+par(mfrow = c(2, 1))
+```
+
+# Análisis de relaciones entre variables categóricas y 'price'
+
+- Se muestra la lista de las variables altamente correlacionadas con 'price' almacenadas en 'high_corr_vars'.
+
+```{r}
+# Variables numéricas altamente correlacionadas con precio
+high_corr_vars
+```
+# Eliminación de valores atípicos y NaN
+
+- Se elimina cualquier fila que contenga valores atípicos basados en el umbral de IQR (rango intercuartílico) para las variables numéricas seleccionadas en 'high_corr_vars'. Esto se hace para limpiar los datos y eliminar valores que podrían afectar negativamente un modelo.
+- Se eliminan filas que contengan valores NaN con 'na.omit()'.
+- Se muestra cuántas instancias se eliminaron debido a valores atípicos o NaN.
+- Se limita 'high_corr_vars' a las primeras 5 variables altamente correlacionadas.
+
+```{r}
+high_corr_vars = high_corr_vars[1:5]
+
+model_df <- data.frame(categoric_vars['enginelocation'],
+                       numeric_vars[high_corr_vars],
+                       numeric_vars['price'])
+size0 = dim(model_df)
+
+iqr_threshold <- 1.2
+for (var_name in high_corr_vars) {
+  var <- numeric_vars[[var_name]]
+  q1 <- quantile(var, 0.25)
+  q3 <- quantile(var, 0.75)
+  iqr <- q3 - q1
+  lower_bound <- q1 - iqr_threshold*iqr
+  upper_bound <- q3 + iqr_threshold*iqr
+  model_df <- model_df[!(var > upper_bound | var < lower_bound), ]
+}
+
+model_df <- na.omit(model_df)
+size1 = dim(model_df)
+change = size0-size1
+cat(change[1],'instancias se han removido por ser outliers o NaN')
+model_df
+```
+## Verificación de valores NaN
+
+- Se verifica que no haya valores NaN en el conjunto de datos resultante utilizando 'sapply()' y 'is.na()'.
+
+```{r}
+sapply(model_df, function(x) sum(is.na(x)))
+sapply(model_df, class)
+```
+
+# Modelo de regresión multilinear con interacción
+
+- Se ajusta un modelo de regresión lineal que incluye interacciones entre variables. El modelo se ajusta utilizando 'lm()'.
+
+```{r}
+model_interact <- lm(price ~ enginelocation * horsepower + carlength * carwidth + curbweight * enginesize, data = model_df)
+summary(model_interact)
+```
+## Análisis de coeficientes y valores p
+
+- enginesize: Esta variable tiene un valor p de aproximadamente 0.4764, lo que indica que no es estadísticamente significativa en la predicción del precio de los automóviles.
+
+- curbweight:enginesize: La interacción entre 'curbweight' y 'enginesize' tampoco es estadísticamente tan significativa, ya que su valor p es aproximadamente 0.12139.
+
+- curbweight: Esta variable tiene un valor p de aproximadamente 0.68888, lo que indica que no es estadísticamente significativa en la predicción del precio de los automóviles a un nivel de significancia convencional.
+
+- enginesize:curbweight: La interacción entre 'enginesize' y 'curbweight' también tiene un valor p de aproximadamente 0.12139, lo que indica que no es estadísticamente tan significativa.
+
+Para el mejoramiento del modelo, se procede a realizar un modelo de regresión multilinear sin interacción.
+
+# Modelo de regresión multilinear sin interacción
+
+```{r}
+model <- lm(price~enginelocation+horsepower+carlength+carwidth+curbweight+enginesize, data = model_df)
+summary(model)
+```
+
+## Análisis de coeficientes y valores p
+
+- carlength: Esta variable no es estadísticamente significativa para predecir el precio de los automóviles, ya que su valor p es alto (aproximadamente 0.96617) y su coeficiente es cercano a cero (-1.872). Por lo tanto, no se considera relevante en el modelo de predicción de precios de automóviles.
+
+- carwidht: Por otro lado, la variable "carwidht" tampoco es estadísticamente significativa en la predicción del precio de los automóviles, ya que su valor p es alto (aproximadamente 0.05246).
+
+# Modelo de regresión multilineal con variables significativas
+
+```{r}
+model <- lm(price~enginelocation+horsepower+enginesize+curbweight, data = model_df)
+summary(model)
+```
+
+## Análisis de coeficientes y valores p
+
+enginelocationrear: Tiene un coeficiente positivo de 14,024.451 con un valor p muy pequeño. Esto sugiere que la ubicación trasera del motor tiene un impacto significativo y positivo en el precio del automóvil. Los automóviles con motores traseros tienden a ser más caros.
+
+- horsepower: Tiene un coeficiente positivo con un valor p muy pequeño. Esto significa que la potencia del automóvil tiene un efecto significativo y positivo en el precio. A medida que la potencia aumenta, el precio tiende a aumentar.
+
+- carwidth: Tiene un coeficiente positivo con un valor p muy pequeño. Esto indica que el ancho del automóvil tiene un impacto significativo y positivo en el precio. Los automóviles más anchos tienden a ser más caros.
+
+- enginesize: Tiene un coeficiente positivo con un valor p muy pequeño. Esto sugiere que el tamaño del motor tiene un efecto significativo y positivo en el precio. Los automóviles con motores más grandes tienden a ser más caros.
+
+- curbweight: Tiene un coeficiente positivo con un valor p de aproximadamente 0.00226. Esto indica que el peso del automóvil también tiene un impacto positivo en el precio, pero su efecto es menos pronunciado en comparación con las otras variables. Sin embargo, dado que el valor p es menor que el umbral de significancia convencional, se considera estadísticamente significativo en la predicción del precio de los automóviles.
+
+• Valor p: Los valores p son muy pequeños (todos < 0.001), lo que sugiere que todas las variables predictoras en el modelo son estadísticamente significativas para predecir el precio del automóvil. Esto significa que es poco probable que sus coeficientes sean cero.
+
+• Valor F: El valor F es 184.5 con un valor p cercano a cero. Esto indica que el modelo en su conjunto es estadísticamente significativo, lo que significa que al menos una de las variables predictoras tiene un efecto significativo en la variable de precio.
+
+
+# Validación del modelo
+
+```{r}
+plot(model$fit, residuals(model))
+hist(residuals(model), breaks = 20, col = "lightblue", main = "Histograma de Residuos")
+curve(dnorm(x, mean = mean(residuals(model)), sd = sd(residuals(model))), add = TRUE, col = "red")
+
+```
+```{r}
+qqnorm(residuals(model))
+qqline(residuals(model))
+```
+```{r}
+library(lmtest)
+dwtest(model)
+shapiro.test(residuals(model))
+```
+
+```{r}
+par(mfrow = c(2, 2))
+plot(residuals(model) ~ carwidth, data = model_df, main = "Residuals vs. carwidth")
+plot(residuals(model) ~ horsepower, data = model_df, main = "Residuals vs. horsepower")
+plot(residuals(model) ~ curbweight, data = model_df, main = "Residuals vs. curbweight")
+plot(residuals(model) ~ enginesize, data = model_df, main = "Residuals vs. enginesize")
+par(mfrow = c(1, 1))
+```
+
+- La prueba de Durbin-Watson sugiere que hay una autocorrelación positiva en los residuos, es decir, indica independencia del modelo de regresión lineal es muy baja o casi nula.
+
+- La prueba de normalidad de Shapiro-Wilk sugiere que los residuos no siguen una distribución normal, lo que es otra suposición de la regresión lineal.
+
+
+# Conclusión
+
+El modelo de precios de automóviles predice que el precio base de un automóvil (el precio cuando todas las variables son nulas) es de alrededor de $85,603.17. Después, cuando se observan características específicas, como la ubicación del motor, la potencia del automóvil, el ancho del automóvil y el tamaño del motor, puedo se pueden realizar predicciones más precisas sobre el precio.
+
+Primero, si el motor está en la parte trasera del automóvil en lugar de en la parte delantera (Engine Location), eso hace que el precio sea alrededor de $13,555.56 más alto. Esto tiene sentido, ya que los automóviles con motores en la parte trasera suelen ser más caros.
+
+Luego, para cada unidad adicional de potencia (Horsepower) que tiene el automóvil, el precio tiende a subir en promedio $37.73. Así que, al tener un automóvil con más potencia, es probable que sea más caro.
+
+El ancho del automóvil (Car Width) también juega un papel. Por cada aumento en el ancho del automóvil, el precio aumenta en alrededor de $1,290.75.
+
+Finalmente, el tamaño del motor (Engine Size) también es importante. Por cada unidad adicional en el tamaño del motor, el precio sube aproximadamente $76.63.
+
+En conjunto, el modelo de regresión multilineal explica alrededor del 82.9% de los precios de los automóviles, mientras que el 17.1% restante se le debería atribuir a la aleatoriedad o error. Sin embargo, durante la validación del modelo, los residuos no mostraron independencia total ni unan distribución normal.
+
+A pesar de que cuando se requiera estimar el precio de un automóvil, se puede usar este modelo y los variables con sus correspondientes coeficientes en la fórmula para obtener una buena estimación del precio, se debería hacer una reconfiguración de modelo para que pase la prueba de validez y sea significativamente confiable para ser usado.
